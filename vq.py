@@ -15,25 +15,19 @@ class VQ(nn.Module):
 
     def forward(self, x):
         dim = self.dim
-        needs_transpose = dim != -1 or dim != x.dim() - 1
-        if needs_transpose:
-            x = x.transpose(-1, dim).contiguous()
 
         codes, indices = quantize(x, self.embedding.weight, self.commitment)
 
-        if needs_transpose:
-            codes = codes.transpose(-1, dim)
-            indices = indices.transpose(-1, dim)
-
-        self.last_indices = indices
-
-        return codes
+        return codes, indices
 
 
 class VectorQuantization(Function):
     @staticmethod
-    def compute_indices(inputs, codebook):
-        with torch.no_grad():
+    def compute_indices(inputs_orig, codebook):
+        bi = []
+        SZ=3000
+        for i in range(0, inputs_orig.size(0), SZ):
+            inputs = inputs_orig[i:i+SZ]
             # inputs: NxD
             # codebook: KxD
             # Nx1xD
@@ -45,8 +39,9 @@ class VectorQuantization(Function):
             # NxK
             distances_matrix = torch.sum(distances_matrix, dim=-1)
             # Nx1
-            indices = torch.min(distances_matrix, dim=-1)[1].unsqueeze(1)
-            return indices
+            indic = torch.min(distances_matrix, dim=-1)[1].unsqueeze(1)
+            bi.append(indic)
+        return torch.cat(bi, dim=0)
 
     @staticmethod
     def flatten(x):
@@ -60,12 +55,21 @@ class VectorQuantization(Function):
         return codes.view(*target_shape), indices.view(*idx_shape)
 
     @staticmethod
-    def forward(ctx, inputs, codebook, commitment=0.25):
+    def forward(ctx, inputs, codebook, commitment=0.25, dim=1):
+        needs_transpose = dim != -1 or dim != x.dim() - 1
+        if needs_transpose:
+            inputs = inputs.transpose(-1, dim).contiguous()
+
         inputs_flat = VectorQuantization.flatten(inputs)
         indices = VectorQuantization.compute_indices(inputs_flat, codebook)
         codes = codebook[indices.view(-1), :]
         codes, indices = VectorQuantization.restore_shapes(
             codes, indices, inputs.shape)
+
+        if needs_transpose:
+            codes = codes.transpose(-1, dim)
+            indices = indices.transpose(-1, dim)
+
         ctx.save_for_backward(codes, inputs, torch.FloatTensor([commitment]),
                               codebook, indices)
         ctx.mark_non_differentiable(indices)
@@ -88,6 +92,6 @@ class VectorQuantization(Function):
         code_disp = (torch
                      .zeros_like(codebook)
                      .index_add_(0, indices.view(-1), code_disp))
-        return straight_through + commitment, code_disp, None
+        return straight_through + commitment, code_disp, None, None
 
 quantize = VectorQuantization.apply
