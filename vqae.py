@@ -113,8 +113,14 @@ def AE_initialize(ae):
             nn.init.constant_(m.bias, 0)
     return ae
 
-def baseline():
-    return AE('rrprrpqrrq', 'rrcurur')
+def baseline(sz):
+    if sz == 128:
+        return baseline_128()
+    if sz == 64:
+        return baseline_64()
 
 def baseline_64():
-    return AE('rrpqrrpq', 'rrucrru')
+    return AE('rrpqrrpq', 'rrucrrur')
+
+def baseline_128():
+    return AE('rrprrpqrrpq', 'rrucrrurrur')
