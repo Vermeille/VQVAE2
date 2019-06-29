@@ -160,9 +160,9 @@ if __name__ == '__main__':
     conv.weight.data.fill_(1)
     img[0, 0, 7, 7] = 1
 
-    for i in range(3):
+    for i in range(4):
         img = conv(img)
-        #img.clamp_(min=0, max=1)
+        img.clamp_(min=0, max=1)
         plt.imshow(img[0, 0].detach().numpy())
         plt.show()
 
