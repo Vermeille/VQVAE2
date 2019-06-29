@@ -27,7 +27,6 @@ class WithSavedActivations(nn.Module):
             if isinstance(layer, nn.Conv2d):
                 layer.register_forward_hook(functools.partial(self._save, name))
             if isinstance(layer, nn.MaxPool2d):
-                print(name)
                 self.model[int(name)] = nn.AvgPool2d(2, 2)
 
 
