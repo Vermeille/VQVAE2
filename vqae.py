@@ -38,27 +38,32 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(hidden),
         ]
 
-        b_vq = 256
+        b_vq = 128
         for l in arch:
             if l == 'r':
                 layers.append(ResBlk(hidden))
             elif l == 'q':
                 layers.append(VQ(hidden, b_vq, dim=1))
-                #b_vq *= 2
             elif l == 'p':
                 layers.append(nn.AvgPool2d(3, 2, 1))
 
         self.layers = nn.ModuleList(layers)
 
-    def forward(self, x):
+    def forward(self, x, ret_idx=False):
         qs = []
-
+        idxs = []
         for m in self.layers:
-            x = m(x)
             if isinstance(m, VQ):
+                x, idx = m(x)
                 qs.append(x.detach())
+                idxs.append(idx)
+            else:
+                x = m(x)
 
-        return qs
+        if ret_idx:
+            return qs, idxs
+        else:
+            return qs
 
 
 class Decoder(nn.Module):
