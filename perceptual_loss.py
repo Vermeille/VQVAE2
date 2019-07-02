@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.models as M
 import functools
 
@@ -63,8 +64,8 @@ class PerceptualLoss(nn.Module):
         self.norm = NetInputNorm()
 
     def forward(self, x, y):
-        ref = self.m(self.norm(y), detach=True)
-        acts = self.m(self.norm(x), detach=False)
+        ref = self.m(self.norm(F.interpolate(y, size=(224, 224), mode='nearest')), detach=True)
+        acts = self.m(self.norm(F.interpolate(x, size=(224, 224), mode='nearest')), detach=False)
         loss = 0
         for k in acts.keys():
             loss += torch.nn.functional.mse_loss(acts[k], ref[k])
