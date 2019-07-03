@@ -30,7 +30,7 @@ class ResBlk(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, arch, hidden=64):
+    def __init__(self, arch, hidden=64, codebook_size=512):
         super(Encoder, self).__init__()
         layers = [
             Conv(3, hidden, 5),
@@ -38,7 +38,7 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(hidden),
         ]
 
-        b_vq = 128
+        b_vq = codebook_size
         for l in arch:
             if l == 'r':
                 layers.append(ResBlk(hidden))
@@ -66,6 +66,15 @@ class Encoder(nn.Module):
             return qs
 
 
+class Noise(nn.Module):
+    def __init__(self, ch):
+        super(Noise, self).__init__()
+        self.a = nn.Parameter(torch.zeros(ch, 1, 1))
+
+    def forward(self, x):
+        return x + self.a * torch.randn_like(x)
+
+
 class Decoder(nn.Module):
     def __init__(self, arch, hidden=64):
         super(Decoder, self).__init__()
@@ -78,6 +87,8 @@ class Decoder(nn.Module):
                 layers.append(nn.UpsamplingNearest2d(scale_factor=2))
             elif l == 'c':
                 layers.append(nn.Conv2d(hidden*2, hidden, 1))
+            elif l == 'n':
+                layers.append(Noise(hidden))
 
         layers += [
             nn.BatchNorm2d(64),
@@ -113,14 +124,20 @@ def AE_initialize(ae):
             nn.init.constant_(m.bias, 0)
     return ae
 
-def baseline(sz):
+def baseline(sz, noise=False):
     if sz == 128:
-        return baseline_128()
+        if noise:
+            return baseline_128_n()
+        else:
+            return baseline_128()
     if sz == 64:
         return baseline_64()
 
 def baseline_64():
     return AE('rrpqrrpq', 'rrucrrur')
+
+def baseline_128_n():
+    return AE('rrprrpqrrpq', 'rnrucnrrurnrunr')
 
 def baseline_128():
     return AE('rrprrpqrrpq', 'rrucrrurrur')
