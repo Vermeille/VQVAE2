@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from vq import VQ
+from torchelie.nn import VQ
+
+GN32 = lambda x, affine: nn.GroupNorm2d
 
 
 def Conv(in_ch, out_ch, ks):
@@ -12,8 +14,8 @@ def Conv(in_ch, out_ch, ks):
 def ConvBNRelu(in_ch, out_ch, ks):
     return nn.Sequential(
             Conv(in_ch, out_ch, ks),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
+            nn.BatchNorm2d(out_ch, affine=True),
+            nn.ReLU(inplace=False)
         )
 
 
@@ -21,21 +23,21 @@ class ResBlk(nn.Module):
     def __init__(self, ch):
         super(ResBlk, self).__init__()
         self.go = nn.Sequential(
-                ConvBNRelu(ch, ch * 2, 3),
-                ConvBNRelu(ch * 2, ch, 3),
+                ConvBNRelu(ch, ch, 3),
+                ConvBNRelu(ch, ch, 3),
             )
 
     def forward(self, x):
-        return x + self.go(x)
+        return self.go(x) + x
 
 
 class Encoder(nn.Module):
-    def __init__(self, arch, hidden=64, codebook_size=512):
+    def __init__(self, arch, hidden=128, codebook_size=256):
         super(Encoder, self).__init__()
         layers = [
             Conv(3, hidden, 5),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(hidden),
+            nn.BatchNorm2d(hidden, affine=True),
         ]
 
         b_vq = codebook_size
@@ -49,7 +51,8 @@ class Encoder(nn.Module):
 
         self.layers = nn.ModuleList(layers)
 
-    def forward(self, x, ret_idx=False):
+    def forward(self, dat, ret_idx=False):
+        x, y = dat
         qs = []
         idxs = []
         for m in self.layers:
@@ -66,17 +69,9 @@ class Encoder(nn.Module):
             return qs
 
 
-class Noise(nn.Module):
-    def __init__(self, ch):
-        super(Noise, self).__init__()
-        self.a = nn.Parameter(torch.zeros(ch, 1, 1))
-
-    def forward(self, x):
-        return x + self.a * torch.randn_like(x)
-
 
 class Decoder(nn.Module):
-    def __init__(self, arch, hidden=64):
+    def __init__(self, arch, hidden=128):
         super(Decoder, self).__init__()
         layers = []
 
@@ -91,7 +86,7 @@ class Decoder(nn.Module):
                 layers.append(Noise(hidden))
 
         layers += [
-            nn.BatchNorm2d(64),
+            nn.BatchNorm2d(hidden, affine=True),
             nn.ReLU(inplace=True),
             Conv(hidden, 3, 3),
             nn.Sigmoid()
@@ -110,14 +105,15 @@ class Decoder(nn.Module):
         return x
 
 
-def AE(enc, dec):
-    return AE_initialize(nn.Sequential(Encoder(enc), Decoder(dec)))
+def AE(enc, dec, hidden=64):
+    return AE_initialize(nn.Sequential(Encoder(enc, hidden), Decoder(dec,
+        hidden)))
 
 
 def AE_initialize(ae):
     for m in ae.modules():
         if isinstance(m, nn.Conv2d):
-            nn.init.xavier_uniform_(m.weight)
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', a=0.2)
             nn.init.constant_(m.bias, 0)
         if isinstance(m, nn.BatchNorm2d):
             nn.init.constant_(m.weight, 1)
@@ -140,4 +136,10 @@ def baseline_128_n():
     return AE('rrprrpqrrpq', 'rnrucnrrurnrunr')
 
 def baseline_128():
-    return AE('rrprrpqrrpq', 'rrucrrurrur')
+    return AE('rprpqrpq', 'rrucrrurrur')
+
+def baseline_256():
+    return AE('rprprprpq', 'rurururur')
+
+def baseline_256_2l():
+    return AE('rprprpqrpq', 'rrucrrurrurur')
