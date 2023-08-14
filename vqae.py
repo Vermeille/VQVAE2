@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torchelie.nn import VQ
-
-GN32 = lambda x, affine: nn.GroupNorm2d
+from torchelie.nn.vq import MultiVQ
+from torchelie.utils import kaiming, xavier
 
 
 def Conv(in_ch, out_ch, ks):
@@ -32,7 +32,7 @@ class ResBlk(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, arch, hidden=128, codebook_size=256):
+    def __init__(self, arch, hidden=128, codebook_size=[2048, 512]):
         super(Encoder, self).__init__()
         layers = [
             Conv(3, hidden, 5),
@@ -40,19 +40,19 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(hidden, affine=True),
         ]
 
-        b_vq = codebook_size
+        b_vqs = codebook_size
         for l in arch:
             if l == 'r':
                 layers.append(ResBlk(hidden))
             elif l == 'q':
-                layers.append(VQ(hidden, b_vq, dim=1))
+                layers.append(MultiVQ(hidden, b_vqs[0], 8 dim=1))
             elif l == 'p':
-                layers.append(nn.AvgPool2d(3, 2, 1))
+                layers.append(xavier(nn.Conv2d(hidden, hidden, 4, stride=2,
+                    padding=1)))
 
-        self.layers = nn.ModuleList(layers)
+        self.layers = nn.ModuleList(layers[:-1])
 
-    def forward(self, dat, ret_idx=False):
-        x, y = dat
+    def forward(self, x, y=None, ret_idx=False):
         qs = []
         idxs = []
         for m in self.layers:
@@ -73,22 +73,24 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, arch, hidden=128):
         super(Decoder, self).__init__()
-        layers = []
+        layers = [xavier(nn.Conv2d(8, hidden, 3, padding=1))]
 
         for l in arch:
             if l == 'r':
                 layers.append(ResBlk(hidden))
             elif l == 'u':
+                #layers.append(nn.ConvTranspose2d(hidden, hidden, 4, stride=2, padding=1))#nn.UpsamplingNearest2d(scale_factor=2))
                 layers.append(nn.UpsamplingNearest2d(scale_factor=2))
+                layers.append(xavier(nn.Conv2d(hidden, hidden, 3, padding=1)))
             elif l == 'c':
-                layers.append(nn.Conv2d(hidden*2, hidden, 1))
+                layers.append(xavier(nn.Conv2d(hidden+hidden, hidden, 1)))
             elif l == 'n':
                 layers.append(Noise(hidden))
 
         layers += [
             nn.BatchNorm2d(hidden, affine=True),
             nn.ReLU(inplace=True),
-            Conv(hidden, 3, 3),
+            xavier(Conv(hidden, 3, 3)),
             nn.Sigmoid()
         ]
 
@@ -139,7 +141,7 @@ def baseline_128():
     return AE('rprpqrpq', 'rrucrrurrur')
 
 def baseline_256():
-    return AE('rprprprpq', 'rurururur')
+    return AE('rprpqrprpq', 'rururcurur')
 
 def baseline_256_2l():
     return AE('rprprpqrpq', 'rrucrrurrurur')
